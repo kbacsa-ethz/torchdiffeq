@@ -201,7 +201,6 @@ class _ReverseFuncSymplectic(torch.nn.Module):
 
 def _reform_inputs_for_symplectic(inputs):
     shapes = []
-    counter = 0
     for counter, tensor_ in enumerate(inputs):
         tensor_l_, tensor_r_ = torch.chunk(tensor_,2,dim=-1)
         if counter == 0:
