@@ -24,19 +24,19 @@ class Yoshida4th(FixedGridODESolver):
         dy = torch.zeros(y.size(),dtype=self.dtype,device=self.device)
         n = len(y) // 2
 
-        dy[:n] = h*_c1*y_[n:]
-        k_ = func(t + self.eps, y)
+        dy[:n] = h*_c1*y[n:]
+        k_ = func(t + self.eps, y + dy)
         dy[n:] = h*_b1*k_[n:]
 
-        dy[:n] = dy[:n] + h*_c2*y_[n:]
+        dy[:n] = dy[:n] + h*_c2*(y[n:] + dy[n:])
         k_ = func(t + self.eps, y + dy)
         dy[n:] = dy[n:] + h*_b2*k_[n:]
 
-        dy[:n] = dy[:n] + h*_c2*y_[n:]
+        dy[:n] = dy[:n] + h*_c2*(y[n:] + dy[n:])
         k_ = func(t + self.eps, y + dy)
         dy[n:] = dy[n:] + h*_b1*k_[n:]
 
-        dy[:n] = dy[:n] + h*_c1*y_[n:]
+        dy[:n] = dy[:n] + h*_c1*(y[n:] + dy[n:])
 
         return dy
 
