@@ -6,10 +6,10 @@ import torch
 from .solvers import FixedGridODESolver
 
 # symplectic integrators constatn 
-_b1 = 1.0/(4.0 - 2.0*pow(2.0,1.0/3.0))
-_b2 = (1.0 - pow(2.0,1.0/3.0))/(4.0 - 2.0*pow(2.0,1.0/3.0))
-_c1 = 1.0 / (2.0 - pow(2.0,1.0/3.0))
-_c2 = 1.0 / (1.0 - pow(2.0,2.0/3.0))
+_c1 = 1.0/(4.0 - pow(2.0,4.0/3.0))
+_c2 = (1.0 - pow(2.0,1.0/3.0))/(4.0 - pow(2.0,4.0/3.0))
+_b1 = 1.0 / (2.0 - pow(2.0,1.0/3.0))
+_b2 = 1.0 / (1.0 - pow(2.0,2.0/3.0))
 
 
 class Yoshida4th(FixedGridODESolver):
@@ -20,34 +20,28 @@ class Yoshida4th(FixedGridODESolver):
         super(Yoshida4th, self).__init__(**kwargs)
         self.eps = torch.as_tensor(eps, dtype=self.dtype, device=self.device)
 
-    def _step_symplectic(self, func, y, t, h, h2):
+    def _step_symplectic(self, func, y, t, h):
         dy = torch.zeros(y.size(),dtype=self.dtype,device=self.device)
         n = len(y) // 2
 
+        dy[:n] = h*_c1*y_[n:]
         k_ = func(t + self.eps, y)
-        dy[:n] = h*_c1*k_[:n] + h2*_c1*_b1*k_[n:]
         dy[n:] = h*_b1*k_[n:]
 
+        dy[:n] = dy[:n] + h*_c2*y_[n:]
         k_ = func(t + self.eps, y + dy)
-        dy[:n] = dy[:n] \
-                + h*_c2*k_[:n] + h2*_c2*_b2*k_[n:]
         dy[n:] = dy[n:] + h*_b2*k_[n:]
 
-        k_ = func(t + self.eps, y + dy)
-        dy[:n] = dy[:n] \
-                + h*_c1*k_[:n] + h2*_c1*_b2*k_[n:]
-        dy[n:] = dy[n:] + h*_b2*k_[n:]
-
+        dy[:n] = dy[:n] + h*_c2*y_[n:]
         k_ = func(t + self.eps, y + dy)
         dy[n:] = dy[n:] + h*_b1*k_[n:]
+
+        dy[:n] = dy[:n] + h*_c1*y_[n:]
 
         return dy
 
     def _step_func(self, func, t, dt, y):
-        h2 = dt * dt
-        h = dt
-
-        return self._step_symplectic(func, y, t, h, h2)
+        return self._step_symplectic(func, y, t, dt)
 
     def integrate(self, t):
         n = len(self.y0) // 2
