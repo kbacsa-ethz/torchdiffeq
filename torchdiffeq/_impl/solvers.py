@@ -76,7 +76,8 @@ class FixedGridODESolver(metaclass=abc.ABCMeta):
 
     def integrate(self, t):
         time_grid = self.grid_constructor(self.func, self.y0, t)
-        assert time_grid[0] == t[0] and time_grid[-1] == t[-1]
+        assert torch.isclose(time_grid[0],t[0],rtol=1e-06, atol=1e-07)\
+                and torch.isclose(time_grid[-1],t[-1],rtol=1e-06, atol=1e-07)
 
         solution = torch.empty(len(t), *self.y0.shape, dtype=self.y0.dtype, device=self.y0.device)
         solution[0] = self.y0
