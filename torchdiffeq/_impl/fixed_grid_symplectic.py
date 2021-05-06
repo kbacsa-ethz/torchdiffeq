@@ -22,21 +22,21 @@ class Yoshida4th(FixedGridODESolver):
 
     def _step_symplectic(self, func, y, t, h):
         dy = torch.zeros(y.size(),dtype=self.dtype,device=self.device)
-        n = len(y) // 2
+        n = y.size(-1) // 2
 
-        dy[:n] = h*_c1*y[n:]
+        dy[..., :n] = h*_c1*y[..., n:]
         k_ = func(t + self.eps, y + dy)
-        dy[n:] = h*_b1*k_[n:]
+        dy[..., n:] = h*_b1*k_[..., n:]
 
-        dy[:n] = dy[:n] + h*_c2*(y[n:] + dy[n:])
+        dy[..., :n] = dy[..., :n] + h*_c2*(y[..., n:] + dy[..., n:])
         k_ = func(t + self.eps, y + dy)
-        dy[n:] = dy[n:] + h*_b2*k_[n:]
+        dy[..., n:] = dy[..., n:] + h*_b2*k_[..., n:]
 
-        dy[:n] = dy[:n] + h*_c2*(y[n:] + dy[n:])
+        dy[..., :n] = dy[..., :n] + h*_c2*(y[..., n:] + dy[..., n:])
         k_ = func(t + self.eps, y + dy)
-        dy[n:] = dy[n:] + h*_b1*k_[n:]
+        dy[..., n:] = dy[..., n:] + h*_b1*k_[..., n:]
 
-        dy[:n] = dy[:n] + h*_c1*(y[n:] + dy[n:])
+        dy[..., :n] = dy[..., :n] + h*_c1*(y[..., n:] + dy[..., n:])
 
         return dy
 
