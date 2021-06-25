@@ -78,7 +78,7 @@ class VelocityVerlet(SymplecticSolver):
 
     def _step_symplectic(self, func, y, t, h):
         dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
-        n = len(y) // 2
+        n = y.size(-1) // 2
 
         k_ = func(t + self.eps, y[..., :n])
         dy[..., :n] = h * y[..., n:] - 0.5 * (h**2) * k_
