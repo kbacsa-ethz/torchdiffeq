@@ -1,7 +1,7 @@
 import torch
 import warnings
 
-SYMPLECTIC = ['yoshida4th']
+SYMPLECTIC = ['yoshida4th', 'velocity_verlet']
 
 def _handle_unused_kwargs(solver, unused_kwargs):
     if len(unused_kwargs) > 0:
