@@ -5,20 +5,48 @@
 import torch
 from .solvers import FixedGridODESolver
 
-# symplectic integrators constatn 
+# symplectic integrators constants
 _c1 = 1.0/(4.0 - pow(2.0,4.0/3.0))
 _c2 = (1.0 - pow(2.0,1.0/3.0))/(4.0 - pow(2.0,4.0/3.0))
 _b1 = 1.0 / (2.0 - pow(2.0,1.0/3.0))
 _b2 = 1.0 / (1.0 - pow(2.0,2.0/3.0))
 
 
-class Yoshida4th(FixedGridODESolver):
+class SymplecticSolver(FixedGridODESolver):
+    def __init__(self, eps=0., **kwargs):
+        super(SymplecticSolver, self).__init__(**kwargs)
+        self.eps = torch.as_tensor(eps, dtype=self.dtype, device=self.device)
+
+    def _step_symplectic(self, func, y, t, dt):
+        pass
+
+    def _step_func(self, func, t, dt, y):
+        return self._step_symplectic(func, y, t, dt)
+
+    def integrate(self, t):
+        n = len(self.y0) // 2
+        reverse = False
+        if abs(t[0]) > abs(t[-1]):
+            reverse = True
+
+        if reverse:
+            self.y0[..., n:] = -self.y0[..., n:]
+
+        solution = super().integrate(t)
+
+        if reverse:
+            self.y0[..., n:] = -self.y0[..., n:]
+            solution[:, n:] = -solution[:, n:]
+
+        return solution
+
+
+class Yoshida4th(SymplecticSolver):
     "support only H = p^2/2 + V(q,theta) form"
     order = 4
 
-    def __init__(self, eps=0., **kwargs):
+    def __init__(self, **kwargs):
         super(Yoshida4th, self).__init__(**kwargs)
-        self.eps = torch.as_tensor(eps, dtype=self.dtype, device=self.device)
 
     def _step_symplectic(self, func, y, t, h):
         dy = torch.zeros(y.size(),dtype=self.dtype,device=self.device)
@@ -40,23 +68,22 @@ class Yoshida4th(FixedGridODESolver):
 
         return dy
 
-    def _step_func(self, func, t, dt, y):
-        return self._step_symplectic(func, y, t, dt)
 
-    def integrate(self, t):
-        n = len(self.y0) // 2
-        reverse = False
-        if abs(t[0]) > abs(t[-1]):
-            reverse = True
+class VelocityVerlet(SymplecticSolver):
+    "support only H = p^2/2 + V(q,theta) form"
+    order = 2
 
-        if reverse:
-            self.y0[n:] = -self.y0[n:]
+    def __init__(self, **kwargs):
+        super(VelocityVerlet, self).__init__(**kwargs)
 
-        solution = super().integrate(t)
+    def _step_symplectic(self, func, y, t, h):
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
+        n = len(y) // 2
 
-        if reverse:
-            self.y0[n:] = -self.y0[n:]
-            solution[:,n:] = -solution[:,n:]
+        k_ = func(t + self.eps, y[..., :n])
+        dy[..., :n] = h * y[..., n:] - 0.5 * (h**2) * k_
 
-        return solution
- 
+        k_ += func(t + self.eps, y[..., :n] + dy[..., :n])
+        dy[..., n:] = -0.5 * h * k_
+
+        return dy
