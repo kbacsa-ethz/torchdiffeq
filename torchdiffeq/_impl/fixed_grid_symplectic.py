@@ -80,10 +80,10 @@ class VelocityVerlet(SymplecticSolver):
         dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
         n = y.size(-1) // 2
 
-        k_ = func(t + self.eps, y[..., :n])
+        k_ = func(t + self.eps, y + dy)
         dy[..., :n] = h * y[..., n:] - 0.5 * (h**2) * k_
 
-        k_ += func(t + self.eps, y[..., :n] + dy[..., :n])
+        k_ += func(t + self.eps, y + dy)
         dy[..., n:] = -0.5 * h * k_
 
         return dy
