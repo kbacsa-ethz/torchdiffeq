@@ -81,9 +81,9 @@ class VelocityVerlet(SymplecticSolver):
         n = y.size(-1) // 2
 
         k_ = func(t + self.eps, y + dy)
-        dy[..., :n] = h * y[..., n:] - 0.5 * (h**2) * k_
+        dy[..., :n] = h * y[..., n:] - 0.5 * (h**2) * k_[..., n:]
 
         k_ += func(t + self.eps, y + dy)
-        dy[..., n:] = -0.5 * h * k_
+        dy[..., n:] = -0.5 * h * k_[..., n:]
 
         return dy
