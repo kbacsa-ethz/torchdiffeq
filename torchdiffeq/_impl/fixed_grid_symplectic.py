@@ -87,3 +87,24 @@ class VelocityVerlet(SymplecticSolver):
         dy[..., n:] = -0.5 * h * k_[..., n:]
 
         return dy
+
+
+class LeapFrog(SymplecticSolver):
+    "support only H = p^2/2 + V(q,theta) form"
+    order = 2
+
+    def __init__(self, **kwargs):
+        super(LeapFrog, self).__init__(**kwargs)
+
+    def _step_symplectic(self, func, y, t, h):
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
+        n = y.size(-1) // 2
+
+        k_ = func(t + self.eps, y + dy)
+        dy[..., n:] = 0.5 * h * k_[..., n:]
+        dy[..., :n] = h * dy[..., n:]
+
+        k_ = func(t + self.eps, y + dy)
+        dy[..., n:] = dy[..., n:] + 0.5 * h * k_[..., n:]
+
+        return dy
