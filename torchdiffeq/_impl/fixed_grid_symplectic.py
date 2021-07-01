@@ -108,3 +108,34 @@ class LeapFrog(SymplecticSolver):
         dy[..., n:] = dy[..., n:] + 0.5 * h * k_[..., n:]
 
         return dy
+
+
+class LeapFrogDissipative(SymplecticSolver):
+    "A naive attempt..."
+    order = 2
+
+    def __init__(self, **kwargs):
+        super(LeapFrogDissipative, self).__init__(**kwargs)
+
+    def _step_symplectic(self, func, y, t, h):
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
+        n = y.size(-1) // 2
+
+        # augmented variables
+        yt = torch.zeros(tuple(map(sum, zip(y.size(), (0, 1)))), dtype=self.dtype, device=self.device)
+        dyt = torch.zeros(tuple(map(sum, zip(y.size(), (0, 1)))), dtype=self.dtype, device=self.device)
+
+        yt[..., 0] = t
+        yt[..., 1:] = y
+
+        k_ = func(t + self.eps, yt + dyt)
+        dyt[..., n + 1:] = 0.5 * h * k_[..., n + 1:]
+
+        dyt[..., 0] = h
+        dyt[..., 1:n + 1] = h * dyt[..., n + 1:]
+        k_ = func(t + self.eps, yt + dyt)
+        dyt[..., n + 1:] = dyt[..., n + 1:] + 0.5 * h * k_[..., n + 1:]
+
+        dy[..., :] = dyt[..., 1:]
+
+        return dy
