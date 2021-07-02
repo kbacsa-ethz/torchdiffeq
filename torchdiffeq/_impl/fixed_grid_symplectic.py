@@ -129,12 +129,16 @@ class LeapFrogDissipative(SymplecticSolver):
         yt[..., 1:] = y
 
         k_ = func(t + self.eps, yt + dyt)
-        dyt[..., n + 1:] = 0.5 * h * k_[..., n + 1:]
+        dyt[..., n + 1:] = -0.5 * h * k_[..., n + 1:]
 
+        k1_ = func(t + self.eps, yt + dyt)
         dyt[..., 0] = h
-        dyt[..., 1:n + 1] = h * dyt[..., n + 1:]
+        k2_ = func(t + self.eps, yt + dyt)
+
+        dyt[..., 1:n + 1] = 0.5*h * (k1_[..., 1:n+1] + k2_[..., 1:n+1])
+
         k_ = func(t + self.eps, yt + dyt)
-        dyt[..., n + 1:] = dyt[..., n + 1:] + 0.5 * h * k_[..., n + 1:]
+        dyt[..., n + 1:] = dyt[..., n + 1:] - 0.5 * h * k_[..., n + 1:]
 
         dy[..., :] = dyt[..., 1:]
 
