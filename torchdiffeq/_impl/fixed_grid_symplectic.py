@@ -101,11 +101,13 @@ class LeapFrog(SymplecticSolver):
         n = y.size(-1) // 2
 
         k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = 0.5 * h * k_[..., n:]
-        dy[..., :n] = h * dy[..., n:]
+        dy[..., n:] = -0.5 * h * k_[..., n:]
 
         k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = dy[..., n:] + 0.5 * h * k_[..., n:]
+        dy[..., :n] = h * k_[..., :n]
+
+        k_ = func(t + self.eps, y + dy)
+        dy[..., n:] = dy[..., n:] - 0.5 * h * k_[..., n:]
 
         return dy
 
