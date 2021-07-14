@@ -84,10 +84,10 @@ class VelocityVerlet(SymplecticSolver):
         m_1 = torch.eye(n)
 
         k_ = func(t + self.eps, y[..., :n])
-        dy[..., :n] = h * torch.matmul(m_1, y[..., n:] - 0.5 * h * k_)
+        dy[..., :n] = h * (y[..., n:] - 0.5 * h * torch.matmul(m_1, k_))
 
         k_ += func(t + self.eps, y[..., :n] + dy[..., :n])
-        dy[..., n:] = - 0.5 * h * k_
+        dy[..., n:] = - 0.5 * h * torch.matmul(m_1, k_)
         return dy
 
 
