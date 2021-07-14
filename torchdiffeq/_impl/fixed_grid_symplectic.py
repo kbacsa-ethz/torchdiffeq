@@ -6,10 +6,10 @@ import torch
 from .solvers import FixedGridODESolver
 
 # symplectic integrators constants
-_c1 = 1.0/(4.0 - pow(2.0,4.0/3.0))
-_c2 = (1.0 - pow(2.0,1.0/3.0))/(4.0 - pow(2.0,4.0/3.0))
-_b1 = 1.0 / (2.0 - pow(2.0,1.0/3.0))
-_b2 = 1.0 / (1.0 - pow(2.0,2.0/3.0))
+_c1 = 1.0 / (4.0 - pow(2.0, 4.0 / 3.0))
+_c2 = (1.0 - pow(2.0, 1.0 / 3.0)) / (4.0 - pow(2.0, 4.0 / 3.0))
+_b1 = 1.0 / (2.0 - pow(2.0, 1.0 / 3.0))
+_b2 = 1.0 / (1.0 - pow(2.0, 2.0 / 3.0))
 
 
 class SymplecticSolver(FixedGridODESolver):
@@ -49,22 +49,22 @@ class Yoshida4th(SymplecticSolver):
         super(Yoshida4th, self).__init__(**kwargs)
 
     def _step_symplectic(self, func, y, t, h):
-        dy = torch.zeros(y.size(),dtype=self.dtype,device=self.device)
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
         n = y.size(-1) // 2
 
-        dy[..., :n] = h*_c1*y[..., n:]
+        dy[..., :n] = h * _c1 * y[..., n:]
         k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = h*_b1*k_[..., n:]
+        dy[..., n:] = h * _b1 * k_[..., n:]
 
-        dy[..., :n] = dy[..., :n] + h*_c2*(y[..., n:] + dy[..., n:])
+        dy[..., :n] = dy[..., :n] + h * _c2 * (y[..., n:] + dy[..., n:])
         k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = dy[..., n:] + h*_b2*k_[..., n:]
+        dy[..., n:] = dy[..., n:] + h * _b2 * k_[..., n:]
 
-        dy[..., :n] = dy[..., :n] + h*_c2*(y[..., n:] + dy[..., n:])
+        dy[..., :n] = dy[..., :n] + h * _c2 * (y[..., n:] + dy[..., n:])
         k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = dy[..., n:] + h*_b1*k_[..., n:]
+        dy[..., n:] = dy[..., n:] + h * _b1 * k_[..., n:]
 
-        dy[..., :n] = dy[..., :n] + h*_c1*(y[..., n:] + dy[..., n:])
+        dy[..., :n] = dy[..., :n] + h * _c1 * (y[..., n:] + dy[..., n:])
 
         return dy
 
@@ -80,12 +80,14 @@ class VelocityVerlet(SymplecticSolver):
         dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
         n = y.size(-1) // 2
 
-        k_ = func(t + self.eps, y + dy)
-        dy[..., :n] = h * y[..., n:] - 0.5 * (h**2) * k_[..., n:]
+        # stub inverse matrix TODO make parameter
+        m_1 = torch.eye(n)
 
-        k_ += func(t + self.eps, y + dy)
-        dy[..., n:] = -0.5 * h * k_[..., n:]
+        k_ = func(t + self.eps, y[..., :n])
+        dy[..., :n] = h * torch.matmul(m_1, y[..., n:] - 0.5 * h * k_)
 
+        k_ += func(t + self.eps, y[..., :n] + dy[..., :n])
+        dy[..., n:] = - 0.5 * h * k_
         return dy
 
 
@@ -137,7 +139,7 @@ class LeapFrogDissipative(SymplecticSolver):
         dyt[..., 0] = h
         k2_ = func(t + self.eps, yt + dyt)
 
-        dyt[..., 1:n + 1] = 0.5*h * (k1_[..., 1:n+1] + k2_[..., 1:n+1])
+        dyt[..., 1:n + 1] = 0.5 * h * (k1_[..., 1:n + 1] + k2_[..., 1:n + 1])
 
         k_ = func(t + self.eps, yt + dyt)
         dyt[..., n + 1:] = dyt[..., n + 1:] - 0.5 * h * k_[..., n + 1:]
