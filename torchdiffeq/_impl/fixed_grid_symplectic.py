@@ -88,6 +88,36 @@ class VelocityVerlet(SymplecticSolver):
         return dy
 
 
+class VelocityVerletDissipative(SymplecticSolver):
+    "support only H = p^2/2 + V(q,theta) form"
+    order = 2
+
+    def __init__(self, **kwargs):
+        super(VelocityVerletDissipative, self).__init__(**kwargs)
+
+    def _step_symplectic(self, func, y, t, h):
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
+        n = y.size(-1) // 2
+
+        yt = torch.zeros(tuple(map(sum, zip(y.size(), (0, 1)))), dtype=self.dtype, device=self.device)
+        dyt = torch.zeros(tuple(map(sum, zip(y.size(), (0, 1)))), dtype=self.dtype, device=self.device)
+
+        yt[..., 0] = t
+        yt[..., 1:] = y
+
+        k_ = func(t + self.eps, yt[..., :n+1])
+        dyt[..., 1:n] = h * (yt[..., n+1:] - 0.5 * h * k_)
+
+        dyt[..., 0] = h
+
+        k_ += func(t + self.eps, yt[..., :n+1] + dyt[..., :n+1])
+        dyt[..., n+1:] = - 0.5 * h * k_
+
+        dy[..., :] = dyt[..., 1:]
+
+        return dy
+        
+        
 class LeapFrog(SymplecticSolver):
     "support only H = p^2/2 + V(q,theta) form"
     order = 2
