@@ -106,12 +106,12 @@ class VelocityVerletDissipative(SymplecticSolver):
         yt[..., 1:] = y
 
         k_ = func(t + self.eps, yt[..., :n+1])
-        dyt[..., 1:n] = h * (yt[..., n+1:] - 0.5 * h * k_)
+        dyt[..., 1:n+1] = h * (yt[..., n+1:] - 0.5 * h * k_[..., 1:])
 
         dyt[..., 0] = h
 
         k_ += func(t + self.eps, yt[..., :n+1] + dyt[..., :n+1])
-        dyt[..., n+1:] = - 0.5 * h * k_
+        dyt[..., n+1:] = - 0.5 * h * k_[..., 1:]
 
         dy[..., :] = dyt[..., 1:]
 
