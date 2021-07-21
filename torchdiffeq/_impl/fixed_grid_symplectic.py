@@ -39,6 +39,26 @@ class SymplecticSolver(FixedGridODESolver):
             solution[:, n:] = -solution[:, n:]
 
         return solution
+       
+        
+class SO2(SymplecticSolver):
+    order = 1
+
+    def __init__(self, **kwargs):
+        super(SO2, self).__init__(**kwargs)
+
+    def _step_symplectic(self, func, y, t, h):
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
+        n = y.size(-1) // 2
+
+        dy[..., n:] = y[..., :n] - y[..., n:]
+
+        k_ = func(t + self.eps, y[..., :n])
+
+        sin_q_delta = torch.sin(y[..., :n] - y[..., n:]) + (h**2) * k_
+        dy[..., :n] = torch.arcsin(torch.clip(sin_q_delta, -(1.-1e-4), 1-1e-4))
+
+        return dy
 
 
 class Yoshida4th(SymplecticSolver):

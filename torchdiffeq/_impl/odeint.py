@@ -14,6 +14,7 @@ SOLVERS = {
     'bosh3': Bosh3Solver,
     'adaptive_heun': AdaptiveHeunSolver,
     'euler': Euler,
+    'so2': SO2,
     'midpoint': Midpoint,
     'rk4': RK4,
     'velocity_verlet': VelocityVerlet,
