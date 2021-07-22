@@ -40,6 +40,23 @@ class SymplecticSolver(FixedGridODESolver):
 
         return solution
        
+
+class StoermerVerlet(SymplecticSolver):
+    order = 1
+
+    def __init__(self, **kwargs):
+        super(StoermerVerlet, self).__init__(**kwargs)
+
+    def _step_symplectic(self, func, y, t, h):
+        dy = torch.zeros(y.size(), dtype=self.dtype, device=self.device)
+        n = y.size(-1) // 2
+
+        dy[..., n:] = y[..., :n] - y[..., n:]
+        k_ = func(t + self.eps, y[..., :n])
+        dy[..., :n] = dy[..., n:] + (h**2) * k_
+
+        return dy
+        
         
 class SO2(SymplecticSolver):
     order = 1
