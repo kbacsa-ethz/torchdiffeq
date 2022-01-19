@@ -90,16 +90,16 @@ class Yoshida4th(SymplecticSolver):
         n = y.size(-1) // 2
 
         dy[..., :n] = h * _c1 * y[..., n:]
-        k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = h * _b1 * k_[..., n:]
+        k_ = func(t + self.eps, y[..., :n] + dy[..., :n])
+        dy[..., n:] = h * _b1 * k_
 
         dy[..., :n] = dy[..., :n] + h * _c2 * (y[..., n:] + dy[..., n:])
-        k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = dy[..., n:] + h * _b2 * k_[..., n:]
+        k_ = func(t + self.eps, y[..., :n] + dy[..., :n])
+        dy[..., n:] = dy[..., n:] + h * _b2 * k_
 
         dy[..., :n] = dy[..., :n] + h * _c2 * (y[..., n:] + dy[..., n:])
-        k_ = func(t + self.eps, y + dy)
-        dy[..., n:] = dy[..., n:] + h * _b1 * k_[..., n:]
+        k_ = func(t + self.eps, y[..., :n] + dy[..., :n])
+        dy[..., n:] = dy[..., n:] + h * _b1 * k_
 
         dy[..., :n] = dy[..., :n] + h * _c1 * (y[..., n:] + dy[..., n:])
 
