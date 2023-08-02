@@ -1,13 +1,10 @@
 import torch
 import torch.nn as nn
 from .odeint import SOLVERS, odeint
-from .adjoint_symplectic import OdeintAdjointMethodSymplectic
-from .misc import _check_inputs, _flat_to_shape, _rms_norm, \
-                  _flat_to_shape_symplectic, _mixed_linf_rms_norm, \
-                  _wrap_norm, SYMPLECTIC
+from .misc import _mixed_linf_rms_norm, _flat_to_shape
 
 
-class OdeintAdjointMethod(torch.autograd.Function):
+class OdeintAdjointMethodSymplectic(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, shapes, func, y0, t, rtol, atol, method, options, 
@@ -40,8 +37,11 @@ class OdeintAdjointMethod(torch.autograd.Function):
             t_requires_grad = ctx.t_requires_grad
 
             t, y, *adjoint_params = ctx.saved_tensors
-            adjoint_params = tuple(adjoint_params)
+            num_particles = len(y[-1]) // 2
 
+            param_shapes = [param_.shape for param_ in adjoint_params]
+            adj_params_len = sum(shape.numel() for shape in param_shapes)
+            adjoint_params = tuple(adjoint_params)
 
             ##################################
             #     Set up adjoint_options     #
@@ -70,14 +70,14 @@ class OdeintAdjointMethod(torch.autograd.Function):
             # together.
             if 'norm' not in adjoint_options:
                 if shapes is None:
+                    # [-1] because y has shape (len(t), *y0.shape)
                     shapes = [y[-1].shape]  
-                # [-1] because y has shape (len(t), *y0.shape)
                 # adj_t, y, adj_y, adj_params, 
                 # corresponding to the order in aug_state below
-                adjoint_shapes = [torch.Size(())] \
+                adjoint_shapes = [torch.Size((2,))]  \
                                     + shapes + shapes \
-                                    + [torch.Size([sum(param.numel()\
-                                           for param in adjoint_params)])]
+                                    + [torch.Size((2*adj_params_len,))] \
+
                 adjoint_options['norm'] = _mixed_linf_rms_norm(adjoint_shapes)
             # ~Backward compatibility
 
@@ -85,25 +85,51 @@ class OdeintAdjointMethod(torch.autograd.Function):
             #      Set up initial state      #
             ##################################
 
+            # Symplectic integarator considers the input as (q, p)
+            # In symplectic integrator, 2-dim must be required.
+            # Thus, for the 1-dim dynamics, e.g. param derivateive and 
+            # t derivative, added auxiliary variable playing a role 
+            # of generalized coodinate.
+            # In other wards, 
+            # 
+            # q_theta := added auxiiliary q, p_theta := dL/d_theta
+            #       
+            #   dq_theta/dt = p_theta,
+            #   dp_theta/dt = vjp_params.
+            #
+            # Furthermore, for the correspondence, the following 
+            # coordinates are introduced.
+            #
+            # q_grad := grad_p, p_grad := grad_q
+            #
+            # Thus, augmented state should be 
+            # ([q_t,p_t],[q,p],[p_grad, q_grad],[q_theta,p_theta])
+
+            adj_y_init = torch.flip(grad_y[-1],dims=[0])
+            adj_y_init[num_particles:] = - adj_y_init[num_particles:]
+
+            aug_state = \
+                [torch.zeros(2, dtype=y.dtype, device=y.device), 
+                                                    y[-1], adj_y_init]  
             # [-1] because y and grad_y are both of shape (len(t), *y0.shape)
-            aug_state = [torch.zeros((), dtype=y.dtype, device=y.device), 
-                                        y[-1], grad_y[-1]]  # vjp_t, y, vjp_y
+            #  for the correspondence, grad_y should be flip.
 
-            aug_state.extend([torch.zeros_like(param) \
-                                    for param in adjoint_params])  # vjp_params
-
+            if adj_params_len:
+                aug_state.extend([torch.zeros(2*adj_params_len,
+                                              dtype=y.dtype,
+                                              device=y.device)])
             ##################################
             #    Set up backward ODE func    #
             ##################################
 
             # TODO: use a nn.Module and call odeint_adjoint 
-#            to implement higher order derivatives.
+            # to implement higher order derivatives.
             def augmented_dynamics(t, y_aug):
                 # Dynamics of the original system augmented with
                 # the adjoint wrt y, and an integrator wrt t and args.
                 y = y_aug[1]
-                adj_y = y_aug[2]
-                # ignore gradients wrt time and parameters
+                adj_y = torch.flip(y_aug[2],dims=[0])
+                adj_y[:num_particles] = - adj_y[:num_particles]
 
                 with torch.enable_grad():
                     t_ = t.detach()
@@ -130,14 +156,30 @@ class OdeintAdjointMethod(torch.autograd.Function):
                     )
 
                 # autograd.grad returns None if no gradient, set to zero.
-                vjp_t = torch.zeros_like(t) if vjp_t is None else vjp_t
+                vjp_t = torch.zeros_like(t).reshape(-1) \
+                                                if vjp_t is None else vjp_t
                 vjp_y = torch.zeros_like(y) if vjp_y is None else vjp_y
-                vjp_params = [torch.zeros_like(param) if vjp_param is None \
-                                else vjp_param for param, vjp_param \
-                                            in zip(adjoint_params, vjp_params)]
+                vjp_params = [torch.zeros_like(param) \
+                                   if vjp_param is None else vjp_param
+                                       for param, vjp_param \
+                                           in zip(adjoint_params, vjp_params)]
+
+                p_t = y_aug[0][1:]
+                vjp_t = torch.cat([p_t,vjp_t])
+
+                vjp_y = torch.flip(vjp_y, dims=[0])
+                vjp_y[num_particles:] = - vjp_y[num_particles:]
+
+
+                if adj_params_len:
+                    p_theta = y_aug[3][adj_params_len:]
+                    vjp_params = tuple(vjp_params)
+                    vjp_params = torch.cat([vjp_para_.reshape(-1) \
+                                                for vjp_para_ in vjp_params])
+                    vjp_params = torch.cat([p_theta, vjp_params])
+                    vjp_params = tuple([vjp_params])
 
                 return (vjp_t, func_eval, vjp_y, *vjp_params)
-
             ##################################
             #       Solve adjoint ODE        #
             ##################################
@@ -155,7 +197,7 @@ class OdeintAdjointMethod(torch.autograd.Function):
                     func_eval = func(t[i], y[i])
                     dLd_cur_t = func_eval.reshape(-1)\
                                             .dot(grad_y[i].reshape(-1))
-                    aug_state[0] -= dLd_cur_t
+                    aug_state[0][1:] -= dLd_cur_t
                     time_vjps[i] = dLd_cur_t
 
                 # Run the augmented system backwards in time.
@@ -169,111 +211,25 @@ class OdeintAdjointMethod(torch.autograd.Function):
                 # extract just the t[i - 1] value
                 aug_state[1] = y[i - 1]  
                 # update to use our forward-pass estimate of the state
-                aug_state[2] += grad_y[i - 1]  
+                adj_y_t = torch.flip(grad_y[i - 1],dims=[0])
+                adj_y_t[num_particles:] = - adj_y_t[num_particles:]
+                aug_state[2] += adj_y_t 
                 # update any gradients wrt state at this time point
 
             if t_requires_grad:
-                time_vjps[0] = aug_state[0]
+                time_vjps[0] = aug_state[0][1:]
 
             adj_y = aug_state[2]
-            adj_params = aug_state[3:]
+            adj_y = torch.flip(adj_y,dims=[0])
+            adj_y[:num_particles] = - adj_y[:num_particles]
+
+            if adj_params_len:
+                adj_params = aug_state[3][adj_params_len:]
+                adj_params = _flat_to_shape(adj_params,(),param_shapes)
+            else:
+                adj_params = aug_state[3:]
 
         return (None, None, adj_y, time_vjps, None, None, None, None, \
                                     None, None, None, None, None, *adj_params)
 
 
-def odeint_adjoint(func, y0, t, rtol=1e-7, atol=1e-9, method=None, 
-               options=None, adjoint_rtol=None, adjoint_atol=None,
-               adjoint_method=None, adjoint_options=None, adjoint_params=None):
-
-    # We need this in order to access the variables inside this module,
-    # since we have no other way of getting variables along the execution path.
-    if adjoint_params is None and not isinstance(func, nn.Module):
-        raise ValueError('func must be an instance of nn.Module '\
-                    'to specify the adjoint parameters; alternatively they '
-                    'can be specified explicitly via the `adjoint_params` '\
-                    'argument. If there are no parameters '
-                    'then it is allowable to set `adjoint_params=()`.')
-
-    # Must come before _check_inputs as we don't want to use normalised 
-    # input (in particular any changes to options)
-    if adjoint_rtol is None:
-        adjoint_rtol = rtol
-    if adjoint_atol is None:
-        adjoint_atol = atol
-    if adjoint_method is None:
-        adjoint_method = method
-    if adjoint_options is None:
-        adjoint_options = {k: v for k, v in options.items() if k != "norm"} \
-                                                if options is not None else {}
-    if adjoint_params is None:
-        adjoint_params = tuple(find_parameters(func))
-    else:
-        adjoint_params = tuple(adjoint_params) 
-        # in case adjoint_params is a generator.
-
-    # Filter params that don't require gradients.
-    adjoint_params = tuple(p for p in adjoint_params if p.requires_grad)
-
-    # Normalise to non-tupled input
-    shapes, func, y0, t, rtol, atol, method, options = \
-            _check_inputs(func, y0, t, rtol, atol, method, options, SOLVERS)
-
-    if "norm" in options and "norm" not in adjoint_options:
-        if method in SYMPLECTIC:
-            param_shapes = [param_.shape for param_ in adjoint_params]
-            adj_params_len = sum(shape.numel() for shape in param_shapes)
-
-            adjoint_shapes = [torch.Size((2,)),y0.shape,y0.shape] \
-                                + [torch.Size([2*adj_params_len])]
-        else:
-            adjoint_shapes = \
-                [torch.Size(()), y0.shape, y0.shape] \
-                        + [torch.Size([sum(param.numel() \
-                            for param in adjoint_params)])]
-
-        adjoint_options["norm"] = \
-                _wrap_norm([_rms_norm, options["norm"], options["norm"]], 
-                                                                adjoint_shapes)
-
-    if method in SYMPLECTIC:
-        solution = OdeintAdjointMethodSymplectic.apply(shapes, func, y0, t, 
-                                                       rtol, atol, method, 
-                                                       options, adjoint_rtol, 
-                                                       adjoint_atol, 
-                                                       adjoint_method, 
-                                                       adjoint_options, 
-                                                       t.requires_grad, 
-                                                       *adjoint_params)
-    else:
-        solution = OdeintAdjointMethod.apply(shapes, func, y0, t, 
-                                                       rtol, atol, method, 
-                                                       options, adjoint_rtol, 
-                                                       adjoint_atol, 
-                                                       adjoint_method, 
-                                                       adjoint_options, 
-                                                       t.requires_grad, 
-                                                       *adjoint_params)
-    if shapes is not None:
-        if method in SYMPLECTIC:
-            solution = _flat_to_shape_symplectic(solution, (len(t),), shapes)
-        else:
-            solution = _flat_to_shape(solution, (len(t),), shapes)
-
-    return solution
-
-
-def find_parameters(module):
-
-    assert isinstance(module, nn.Module)
-
-    if getattr(module, '_is_replica', False):
-
-        def find_tensor_attributes(module):
-            tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v) and v.requires_grad]
-            return tuples
-
-        gen = module._named_members(get_members_fn=find_tensor_attributes)
-        return [param for _, param in gen]
-    else:
-        return list(module.parameters())

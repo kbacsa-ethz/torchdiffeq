@@ -18,6 +18,30 @@ class ConstantODE(torch.nn.Module):
         return self.a * t + self.b
 
 
+class ConstantODEforSymplectic(torch.nn.Module):
+
+    def __init__(self):
+        super(ConstantODEforSymplectic, self).__init__()
+        self.a = torch.nn.Parameter(torch.tensor(0.2))
+        self.q_0 = torch.tensor(0.5)        
+        self.p_0 = torch.tensor(1.0)
+
+    def forward(self, t, y):
+        auxiliy_fp = self.a * torch.ones(1).to(y) 
+        auxiliy_fq = y[1:]
+        return torch.cat([auxiliy_fq,auxiliy_fp])
+
+    def y_exact(self, t):
+        t_numpy = t.detach().cpu().numpy()
+        ans = []
+        for t_i in t_numpy:
+            auxiliy_q = 0.5 * self. a * t_i ** 2 + self.p_0 * t_i + self.q_0
+            auxiliy_p = self. a * t_i + self.p_0 
+            ans.append([auxiliy_q, auxiliy_p])
+        return torch.stack([torch.tensor(ans_) for ans_ in ans])\
+                                                .reshape(len(t_numpy), 2).to(t)
+
+
 class SineODE(torch.nn.Module):
     def forward(self, t, y):
         return 2 * y / t + t**4 * torch.sin(2 * t) - t**2 + 4 * t**3
@@ -50,14 +74,45 @@ class LinearODE(torch.nn.Module):
         return torch.stack([torch.tensor(ans_) for ans_ in ans]).reshape(len(t_numpy), self.dim).to(t)
 
 
-PROBLEMS = {'constant': ConstantODE, 'linear': LinearODE, 'sine': SineODE}
+class HarmonicOscillator(torch.nn.Module):
+
+    def __init__(self, dim=6):
+        super(HarmonicOscillator, self).__init__()
+        n = dim//2
+        kappa = 0.1 * torch.abs(torch.randn(n))
+        D_H_upper = torch.cat((torch.zeros(n,n) , torch.diag(-kappa)), 1)
+        D_H_lower = torch.cat((torch.eye(n), torch.zeros(n,n)), 1)
+        self.D_H = torch.cat((D_H_upper, D_H_lower),0)
+
+        self.dim = dim
+        self.n = n
+        self.kappa = torch.nn.Parameter(kappa)
+        self.initial_val = 0.5* np.ones((1, dim))
+
+    def forward(self, t, y):
+        n = self.n
+        return torch.cat([y[n:], -self.kappa*y[:n]]) 
+
+    def y_exact(self, t):
+        t_numpy = t.detach().cpu().numpy()
+        D_H_np = self.D_H.detach().cpu().numpy()
+        ans = []
+        for t_i in t_numpy:
+            ans.append(np.matmul(self.initial_val,scipy.linalg.expm(D_H_np * t_i)))
+        return torch.stack([torch.tensor(ans_) for ans_ in ans]).reshape(len(t_numpy), self.dim).to(t)
+
+
+PROBLEMS = {'constant': ConstantODE,'constant_symplectic':ConstantODEforSymplectic,
+            'linear': LinearODE, 'sine': SineODE, 'harmonic':HarmonicOscillator}
+
 DTYPES = (torch.float32, torch.float64)
 DEVICES = ['cpu']
 if torch.cuda.is_available():
     DEVICES.append('cuda:0')
 FIXED_METHODS = ('euler', 'midpoint', 'rk4', 'explicit_adams', 'implicit_adams')
+FIXED_SYMPLECTIC_METHODS = ('yoshida4th',)
 ADAPTIVE_METHODS = ('dopri5', 'bosh3', 'adaptive_heun', 'dopri8')  # TODO: add in adaptive adams and tsit5 if/when they're fixed
-METHODS = FIXED_METHODS + ADAPTIVE_METHODS
+METHODS = FIXED_METHODS + ADAPTIVE_METHODS + FIXED_SYMPLECTIC_METHODS
 
 
 def construct_problem(device, npts=10, ode='constant', reverse=False, dtype=torch.float64):
